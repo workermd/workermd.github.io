@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Panel, Flex, Typography, Button } from '@maxhub/max-ui';
 
 interface Item {
@@ -43,21 +43,19 @@ const App = () => {
         setVisible(false);
 
         setTimeout(() => {
-            setResults((prev) => {
-                const next = [...prev, { status }];
-
-                if (index + 1 >= items.length) {
-                    // TODO: replace with wherever `results` actually needs to go
-                    // (bot callback, API call, window.parent.postMessage, etc.)
-                    console.log('All items answered:', next);
-                }
-
-                return next;
-            });
+            setResults((prev) => [...prev, { status }]);
             setIndex((i) => i + 1);
             setVisible(true);
         }, TRANSITION_MS);
     };
+
+    useEffect(() => {
+        if (isDone && items.length > 0) {
+            // TODO: replace with wherever `results` actually needs to go
+            // (bot callback, API call, window.parent.postMessage, etc.)
+            console.log('All items answered:', results);
+        }
+    }, [isDone]);
 
     const content = isDone ? (
         <Typography.Body variant="medium">
