@@ -3,6 +3,7 @@ import { MaxUI } from '@maxhub/max-ui';
 import '@maxhub/max-ui/dist/styles.css';
 import App from './App.tsx';
 
+
 const Root = () => (
     <MaxUI>
         <App />

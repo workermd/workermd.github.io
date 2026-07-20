@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Panel, Flex, Typography, Button } from '@maxhub/max-ui';
 
+declare const WebApp: any;
+
 interface Item {
     date: string;
     time: string;
@@ -13,14 +15,30 @@ interface Result {
     status: Status;
 }
 
-const getItemsFromQuery = (): Item[] => {
-    const params = new URLSearchParams(window.location.search);
-    const raw = params.get('data');
+const parseSafeBase64Url = (base64UrlString: string): Item[] => {
+    let base64 = base64UrlString.replace(/-/g, '+').replace(/_/g, '/');
 
-    if (!raw) return [];
+    while (base64.length % 4) {
+        base64 += '=';
+    }
+
+    const binaryString = atob(base64);
+
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    return JSON.parse(new TextDecoder('utf-8').decode(bytes)) as Item[];
+}
+
+const getItemsFromInitData = (): Item[] => {
+    const start_param = WebApp.initDataUnsafe.start_param;
+
+    if (!start_param) return [];
 
     try {
-        const parsed = JSON.parse(decodeURIComponent(raw));
+        const parsed = parseSafeBase64Url(start_param);
         return Array.isArray(parsed) ? (parsed as Item[]) : [];
     } catch (e) {
         console.error('Failed to parse `data` query param:', e);
@@ -31,7 +49,7 @@ const getItemsFromQuery = (): Item[] => {
 const TRANSITION_MS = 200;
 
 const App = () => {
-    const [items] = useState<Item[]>(getItemsFromQuery);
+    const [items] = useState<Item[]>(getItemsFromInitData);
     const [index, setIndex] = useState<number>(0);
     const [results, setResults] = useState<Result[]>([]);
     const [visible, setVisible] = useState<boolean>(true);
@@ -50,6 +68,7 @@ const App = () => {
     };
 
     useEffect(() => {
+        WebApp.ready();
         if (isDone && items.length > 0) {
             // TODO: replace with wherever `results` actually needs to go
             // (bot callback, API call, window.parent.postMessage, etc.)
