@@ -1,7 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Panel, Flex, Typography, Button, Spinner } from '@maxhub/max-ui';
+import {
+    CONTACT_ERROR_REASONS,
+    CONTACT_ERROR_MESSAGES,
+    ERROR_PREFIX,
+    isWebAppRequestPhone,
+    UserRefusedPhoneError,
+    ContactRequestError,
+} from './contactErrors';
 
 declare const WebApp: any;
+
+interface ContactData {
+    phone:    string;
+    authDate: string;
+    hash:     string;
+}
 
 interface Booking {
     id:      string;
@@ -17,18 +31,41 @@ interface StatusUpdate {
 
 type Status = 'confirmed' | 'cancelled';
 
-async function fetchBookings(): Promise<Booking[]> {
+async function requestContact(): Promise<ContactData> {
+    try {
+        return await WebApp.requestContact();
+    } catch (e: unknown) {
+        if (!isWebAppRequestPhone(e)) {
+            throw new Error("Unknown contact request error", { cause: e });
+        }
+
+        const reason = e.error.code;
+
+        if (reason === `${ERROR_PREFIX}${CONTACT_ERROR_REASONS.UserRefused}`) {
+            throw new UserRefusedPhoneError(e);
+        } else if (reason === `${ERROR_PREFIX}${CONTACT_ERROR_REASONS.RequestError}`) {
+            throw new ContactRequestError(e);
+        }
+
+        throw new Error("Unknown contact request error", { cause: e });
+    }
+}
+
+async function fetchBookings(contactData: ContactData): Promise<Booking[]> {
     const response = await fetch('https://rgp.mfc.tomsk.ru/bookings/get', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData: WebApp.initData }),
+        body: JSON.stringify({
+            init_data:    WebApp.initData,
+            contact_data: contactData
+        }),
     });
 
     if (!response.ok) {
         throw new Error(`Request for bookings failed with status ${response.status}`);
     }
 
-    return response.json() as Promise<Booking[]>;
+    return await response.json() as Booking[];
 }
 
 async function updateBookingStatus(statusUpdate: StatusUpdate): Promise<void> {
@@ -49,29 +86,52 @@ const TRANSITION_MS = 200;
 const App = () => {
     const [bookings, setBookings] = useState<Booking[] | null>(null); // null = still loading
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [updateError, setUpdateError] = useState<string | null>(null);
     const [index, setIndex] = useState<number>(0);
     const [visible, setVisible] = useState<boolean>(true);
 
-    useEffect(() => {
-        fetchBookings()
-            .then((fetched) => {
-                setBookings(fetched);
+    const initialize = () => {
+        requestContact()
+            .then((contactData) => {
+                return fetchBookings(contactData);
+            })
+            .then((fetchedBookings) => {
+                setBookings(fetchedBookings);
                 WebApp.ready();
             })
-            .catch((e) => {
+            .catch((e: unknown) => {
                 console.error(e);
-                setLoadError('Не удалось получить данные. Попробуйте обратиться позже');
-                WebApp.ready(); // still signal ready so the skeleton clears
+
+                if (e instanceof UserRefusedPhoneError) {
+                    setLoadError(CONTACT_ERROR_MESSAGES.UserRefused);
+                    return;
+                }
+
+                setLoadError(CONTACT_ERROR_MESSAGES.Default);
+                WebApp.ready();
             });
-    }, []);
+    };
+
+    useEffect(initialize, []);
 
     if (bookings === null) {
         return (
             <Panel centeredX centeredY>
-                {loadError ? (
-                    <Typography.Body variant="medium">{loadError}</Typography.Body>
-                ) : (
+                {loadError === null ? (
                     <Spinner />
+                ) : loadError === CONTACT_ERROR_MESSAGES.UserRefused ? (
+                    <Flex direction="column" align="center" gap={16}>
+                        <Typography.Body variant="medium">{loadError}</Typography.Body>
+                        <Button
+                          mode="primary"
+                          stretched={true}
+                          onClick={() => initialize()}
+                        >
+                            Поделиться номером телефона
+                        </Button>
+                    </Flex>
+                ) : (
+                    <Typography.Body variant="medium">{loadError}</Typography.Body>
                 )}
             </Panel>
         );
@@ -80,10 +140,16 @@ const App = () => {
     const current = bookings[index];
     const isDone = index >= bookings.length;
 
-    const handleAnswer = (id: string, status: Status) => {
-        const statusUpdate: StatusUpdate = {id, status}
+    const handleAnswer = async (id: string, status: Status) => {
+        setUpdateError(null);
 
-        updateBookingStatus(statusUpdate);
+        try {
+            await updateBookingStatus({ id, status });
+        } catch (e) {
+            console.error(e);
+            setUpdateError('Не удалось сохранить ответ. Попробуйте ещё раз.');
+            return; // don't advance to the next booking — let the user retry
+        }
 
         setVisible(false);
 
@@ -119,6 +185,11 @@ const App = () => {
                 >
                     Отменить запись
                 </Button>
+                {updateError !== null && (
+                    <Typography.Label variant="medium" style={{ color: 'var(--color-negative, #e53935)' }}>
+                        {updateError}
+                    </Typography.Label>
+                )}
             </Flex>
         </Flex>
     );
