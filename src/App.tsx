@@ -22,14 +22,15 @@ interface Booking {
     date:    string;
     time:    string;
     address: string;
+    status:  Status;
 }
 
 interface StatusUpdate {
-    id:     string;
-    status: Status;
+    phone:   string;
+    booking: Booking
 }
 
-type Status = 'confirmed' | 'cancelled';
+type Status = 'confirmed' | 'cancelled' | null;
 
 async function requestContact(): Promise<ContactData> {
     try {
@@ -86,13 +87,15 @@ const TRANSITION_MS = 200;
 const App = () => {
     const [bookings, setBookings] = useState<Booking[] | null>(null); // null = still loading
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [phone, setPhone] = useState<string | null>(null);
     const [updateError, setUpdateError] = useState<string | null>(null);
-    const [index, setIndex] = useState<number>(0);
+    // const [index, setIndex] = useState<number>(0);
     const [visible, setVisible] = useState<boolean>(true);
 
     const initialize = () => {
         requestContact()
             .then((contactData) => {
+                setPhone(contactData.phone);
                 return fetchBookings(contactData);
             })
             .then((fetchedBookings) => {
@@ -137,31 +140,48 @@ const App = () => {
         );
     }
 
+    const index = 0
     const current = bookings[index];
     const isDone = index >= bookings.length;
 
-    const handleAnswer = async (id: string, status: Status) => {
+    const handleAnswer = async (status: Status) => {
         setUpdateError(null);
 
         try {
-            await updateBookingStatus({ id, status });
+            await updateBookingStatus({ phone: phone!, booking: {...current, status} });
         } catch (e) {
             console.error(e);
             setUpdateError('Не удалось сохранить ответ. Попробуйте ещё раз.');
             return; // don't advance to the next booking — let the user retry
         }
 
+        current.status = status
+
         setVisible(false);
 
         setTimeout(() => {
-            setIndex((i) => i + 1);
+            // setIndex((i) => i + 1);
             setVisible(true);
         }, TRANSITION_MS);
     };
 
-    const content = isDone ? (
+    const content = isDone || current.status !== null ? (
         <Typography.Body variant="medium">
-            У вас нет записей, ожидающих подтверждения
+            {isDone ? (
+                "У вас нет записей, ожидающих подтверждения"
+            ) : current.status === "confirmed" ? (
+                <>
+                    <b>Запись подтверждена</b>
+                    <br />
+                    Ваша запись успешно подтверждена. Ждём вас в назначенное время.
+                </>
+            ) : current.status === "cancelled" ? (
+                <>
+                    <b>Запись отменена</b>
+                    <br />
+                    Ваша запись была удалена.
+                </>
+            ) : null}
         </Typography.Body>
     ) : (
         <Flex direction="column" align="center" gap={16}>
@@ -173,7 +193,7 @@ const App = () => {
                 <Button
                   mode="primary"
                   stretched={true}
-                  onClick={() => handleAnswer(current.id, 'confirmed')}
+                  onClick={() => handleAnswer('confirmed')}
                 >
                     Подтвердить запись
                 </Button>
@@ -181,7 +201,7 @@ const App = () => {
                   mode="primary"
                   appearance="negative"
                   stretched={true}
-                  onClick={() => handleAnswer(current.id, 'cancelled')}
+                  onClick={() => handleAnswer('cancelled')}
                 >
                     Отменить запись
                 </Button>
